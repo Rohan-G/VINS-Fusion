@@ -30,6 +30,7 @@
 #include <fstream>
 
 extern ros::Publisher pub_odometry;
+extern ros::Publisher pub_num_features;
 extern ros::Publisher pub_path, pub_pose;
 extern ros::Publisher pub_cloud, pub_map;
 extern ros::Publisher pub_key_poses;
@@ -46,6 +47,8 @@ void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, co
 void pubTrackImage(const cv::Mat &imgTrack, const double t);
 
 void printStatistics(const Estimator &estimator, double t);
+
+void pubNumFeatures(int num);
 
 void pubOdometry(const Estimator &estimator, const std_msgs::Header &header);
 

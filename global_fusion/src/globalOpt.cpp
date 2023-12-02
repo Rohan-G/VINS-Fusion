@@ -11,6 +11,14 @@
 
 #include "globalOpt.h"
 #include "Factors.h"
+#include <fstream>
+
+// ofstream outFIle("~/Desktop/outputs.txt");
+
+int num = 0;
+
+std::mutex extras_lock;
+int num_extras = 0;
 
 GlobalOptimization::GlobalOptimization()
 {
@@ -76,14 +84,24 @@ void GlobalOptimization::getGlobalOdom(Eigen::Vector3d &odomP, Eigen::Quaternion
     odomQ = lastQ;
 }
 
-void GlobalOptimization::inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy)
+void GlobalOptimization::inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy, bool flag)
 {
 	double xyz[3];
 	GPS2XYZ(latitude, longitude, altitude, xyz);
 	vector<double> tmp{xyz[0], xyz[1], xyz[2], posAccuracy};
     //printf("new gps: t: %f x: %f y: %f z:%f \n", t, tmp[0], tmp[1], tmp[2]);
-	GPSPositionMap[t] = tmp;
+    // if(posAccuracy > 0.5){
+    if(flag){
+        extras_lock.lock();
+        num_extras ++;
+        extras_lock.unlock();
+    }
+    GPSPositionMap[t] = tmp;
+    // }
+    // num++;
+    // if((num > 500 && num <= 550) || num >= 1000){
     newGPS = true;
+    // }
 
 }
 
@@ -93,9 +111,12 @@ void GlobalOptimization::optimize()
     {
         if(newGPS)
         {
+            // std::cout << "Optimizing\n";
             newGPS = false;
             printf("global optimization\n");
             TicToc globalOptimizationTime;
+
+            // cout <<  "\n\n\n\n\n";
 
             ceres::Problem problem;
             ceres::Solver::Options options;
@@ -110,12 +131,18 @@ void GlobalOptimization::optimize()
 
             //add param
             mPoseMap.lock();
-            int length = localPoseMap.size();
+            int length = localPoseMap.size() + num_extras;
             // w^t_i   w^q_i
             double t_array[length][3];
             double q_array[length][4];
             map<double, vector<double>>::iterator iter;
             iter = globalPoseMap.begin();
+
+            for(int i=0; i<iter->second.size(); i++){
+                cout << iter->second[i] << " ";
+            }
+            cout << "\n";
+
             for (int i = 0; i < length; i++, iter++)
             {
                 t_array[i][0] = iter->second[0];
@@ -138,6 +165,14 @@ void GlobalOptimization::optimize()
                 iterVIONext++;
                 if(iterVIONext != localPoseMap.end())
                 {
+                    // cout << iterVIO->second.size() << "\n";
+                    // for(int i=0; i<iterVIO->second.size(); i++){
+                    //     cout << iterVIO->second[i] << " ";
+                    // }
+                    // cout << "\n";
+
+                    // start
+                    
                     Eigen::Matrix4d wTi = Eigen::Matrix4d::Identity();
                     Eigen::Matrix4d wTj = Eigen::Matrix4d::Identity();
                     wTi.block<3, 3>(0, 0) = Eigen::Quaterniond(iterVIO->second[3], iterVIO->second[4], 
@@ -156,6 +191,8 @@ void GlobalOptimization::optimize()
                                                                                 0.1, 0.01);
                     problem.AddResidualBlock(vio_function, NULL, q_array[i], t_array[i], q_array[i+1], t_array[i+1]);
 
+                    // stop
+
                     /*
                     double **para = new double *[4];
                     para[0] = q_array[i];
@@ -165,7 +202,7 @@ void GlobalOptimization::optimize()
 
                     double *tmp_r = new double[6];
                     double **jaco = new double *[4];
-                    jaco[0] = new double[6 * 4];
+                    jaco[0] = new double[6 * 4]ba;
                     jaco[1] = new double[6 * 3];
                     jaco[2] = new double[6 * 4];
                     jaco[3] = new double[6 * 3];
@@ -184,6 +221,7 @@ void GlobalOptimization::optimize()
                     */
 
                 }
+                
                 //gps factor
                 double t = iterVIO->first;
                 iterGPS = GPSPositionMap.find(t);
@@ -213,7 +251,7 @@ void GlobalOptimization::optimize()
             }
             //mPoseMap.unlock();
             ceres::Solve(options, &problem, &summary);
-            //std::cout << summary.BriefReport() << "\n";
+            // std::cout << summary.BriefReport() << "\n";
 
             // update global pose
             //mPoseMap.lock();
@@ -240,6 +278,10 @@ void GlobalOptimization::optimize()
             updateGlobalPath();
             //printf("global time %f \n", globalOptimizationTime.toc());
             mPoseMap.unlock();
+
+            // cout<<"\n\n\n\n\n";
+            
+            std::cout<<"Optimized\n";
         }
         std::chrono::milliseconds dura(2000);
         std::this_thread::sleep_for(dura);

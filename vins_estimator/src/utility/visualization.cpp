@@ -8,6 +8,7 @@
  *******************************************************/
 
 #include "visualization.h"
+#include "std_msgs/Int32.h"
 
 using namespace ros;
 using namespace Eigen;
@@ -17,6 +18,7 @@ ros::Publisher pub_point_cloud, pub_margin_cloud;
 ros::Publisher pub_key_poses;
 ros::Publisher pub_camera_pose;
 ros::Publisher pub_camera_pose_visual;
+ros::Publisher pub_num_features;
 nav_msgs::Path path;
 
 ros::Publisher pub_keyframe_pose;
@@ -45,9 +47,19 @@ void registerPub(ros::NodeHandle &n)
     pub_keyframe_point = n.advertise<sensor_msgs::PointCloud>("keyframe_point", 1000);
     pub_extrinsic = n.advertise<nav_msgs::Odometry>("extrinsic", 1000);
     pub_image_track = n.advertise<sensor_msgs::Image>("image_track", 1000);
+    pub_num_features = n.advertise<std_msgs::Int32>("num_features",1000);
 
     cameraposevisual.setScale(0.1);
     cameraposevisual.setLineWidth(0.01);
+}
+
+void pubNumFeatures(int num)
+{
+    std_msgs::Int32 new_msg;
+    // new_msg.header = header;
+    new_msg.data = num;
+    pub_num_features.publish(new_msg);
+
 }
 
 void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, const Eigen::Vector3d &V, double t)
@@ -83,7 +95,7 @@ void printStatistics(const Estimator &estimator, double t)
     if (estimator.solver_flag != Estimator::SolverFlag::NON_LINEAR)
         return;
     //printf("position: %f, %f, %f\r", estimator.Ps[WINDOW_SIZE].x(), estimator.Ps[WINDOW_SIZE].y(), estimator.Ps[WINDOW_SIZE].z());
-    ROS_DEBUG_STREAM("position: " << estimator.Ps[WINDOW_SIZE].transpose());
+    ROS_DEBUG_STREAM("positionpython backend.py: " << estimator.Ps[WINDOW_SIZE].transpose());
     ROS_DEBUG_STREAM("orientation: " << estimator.Vs[WINDOW_SIZE].transpose());
     if (ESTIMATE_EXTRINSIC)
     {

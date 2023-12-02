@@ -33,7 +33,7 @@ struct TError
 	{
 		residuals[0] = (tj[0] - T(t_x)) / T(var);
 		residuals[1] = (tj[1] - T(t_y)) / T(var);
-		residuals[2] = (tj[2] - T(t_z)) / T(var);
+		residuals[2] = (tj[2] - T(t_z)) / T(20*var);
 
 		return true;
 	}

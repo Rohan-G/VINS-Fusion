@@ -277,6 +277,10 @@ void Estimator::processMeasurements()
         if(!featureBuf.empty())
         {
             feature = featureBuf.front();
+            // cout << "\n\n\n\n\n";
+            // cout << "Size: " << feature.second.size() << "\n";
+            // cout << "\n\n\n\n\n";
+
             curTime = feature.first + td;
             while(1)
             {
@@ -324,6 +328,7 @@ void Estimator::processMeasurements()
             header.frame_id = "world";
             header.stamp = ros::Time(feature.first);
 
+            pubNumFeatures(feature.second.size());
             pubOdometry(*this, header);
             pubKeyPoses(*this, header);
             pubCameraPose(*this, header);
@@ -1131,9 +1136,10 @@ void Estimator::optimization()
     //printf("solver costs: %f \n", t_solver.toc());
 
     double2vector();
-    //printf("frame_count: %d \n", frame_count);
+    printf("frame_count: %d %d\n", frame_count,WINDOW_SIZE);
 
     if(frame_count < WINDOW_SIZE)
+        // printf("Here\n %d Window Size", WINDOW_SIZE);
         return;
     
     TicToc t_whole_marginalization;
