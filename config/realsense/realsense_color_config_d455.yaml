@@ -3,7 +3,7 @@
 #common parameters
 imu_topic: "/mavros/imu/data_raw"
 #imu_topic: "/d455/imu"
-image_topic: "/d455/color/image_raw"
+image_topic: "/camera/color/image_raw"
 output_path: "/home/rohan/Documents/output"
 
 #camera calibration 

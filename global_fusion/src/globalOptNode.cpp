@@ -27,7 +27,7 @@
 #include <unistd.h>
 
 GlobalOptimization globalEstimator;
-ros::Publisher pub_global_odometry, pub_global_path, pub_car;
+ros::Publisher pub_global_odometry, pub_global_path, pub_car, pub_imu, pub_gps;
 nav_msgs::Path *global_path;
 double last_vio_t = -1;
 double last_imu_t = -1;
@@ -36,6 +36,8 @@ std::mutex m_buf;
 std::mutex feat_lock;
 int num_features;
 bool updated = false;
+nav_msgs::Path imu_path_msg;
+nav_msgs::Path gps_path_msg;
 
 void getCWD(){
     char buffer[PATH_MAX]; // To store the path
@@ -104,14 +106,28 @@ void feature_callback(const std_msgs::Int32ConstPtr &feat_msg)
 
 void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
 {
-    //printf("gps_callback! \n");
+    // printf("gps_callback! \n");
     m_buf.lock();
     gpsQueue.push(GPS_msg);
+    double xyz[3];
+	globalEstimator.GPS2XYZ(GPS_msg->latitude, GPS_msg->longitude, GPS_msg->altitude, xyz);
+    geometry_msgs::PoseStamped pose_stamped;
+    pose_stamped.header = GPS_msg->header;
+    pose_stamped.pose.position.x = xyz[0];
+    pose_stamped.pose.position.y = xyz[1];
+    pose_stamped.pose.position.z = xyz[2];
+    gps_path_msg.header = pose_stamped.header;
+    gps_path_msg.header.frame_id = "world";
+    gps_path_msg.poses.push_back(pose_stamped);
+    pub_gps.publish(gps_path_msg);
+    gpsQueue.pop();
     m_buf.unlock();
+    // cout << "Leaving GPS func\n";
 }
 
 void imu_callback(const geometry_msgs::PoseStampedConstPtr &pose_msg)
 {
+    // printf("imu callback!\n");
     double t = pose_msg->header.stamp.toSec();
     last_vio_t = t;
     Eigen::Vector3d vio_t(pose_msg->pose.position.x, pose_msg->pose.position.y, pose_msg->pose.position.z);
@@ -120,23 +136,29 @@ void imu_callback(const geometry_msgs::PoseStampedConstPtr &pose_msg)
     vio_q.x() = pose_msg->pose.orientation.x;
     vio_q.y() = pose_msg->pose.orientation.y;
     vio_q.z() = pose_msg->pose.orientation.z;
-    feat_lock.lock();
+    // feat_lock.lock();
     bool flag = false;
     // if(num_features > 0){
         // printf("\n\n\n\n %d \n\n\n\n\n", num_features);
         // replace with pure IMU
-        globalEstimator.inputOdom(t, vio_t, vio_q);
-        flag = true;
+    globalEstimator.inputOdom(t, vio_t, vio_q);
+    flag = true;
     // }
     // feat_lock.unlock();
 
+    imu_path_msg.header = pose_msg->header;
+    imu_path_msg.header.frame_id = "world";
+    imu_path_msg.poses.push_back(*pose_msg);
+    pub_imu.publish(imu_path_msg);
 
     m_buf.lock();
+    // cout << "locked\n";
     while(!gpsQueue.empty())
     {
+        // cout << "Here\n";
         sensor_msgs::NavSatFixConstPtr GPS_msg = gpsQueue.front();
         double gps_t = GPS_msg->header.stamp.toSec();
-        printf("vio t: %f, gps t: %f \n", t, gps_t);
+        printf("imu t: %f, gps t: %f \n", t, gps_t);
         // 10ms sync tolerance
         if(gps_t >= t - 0.01 && gps_t <= t + 0.01)
         {
@@ -146,12 +168,11 @@ void imu_callback(const geometry_msgs::PoseStampedConstPtr &pose_msg)
             double altitude = GPS_msg->altitude;
             //int numSats = GPS_msg->status.service;
             double pos_accuracy = GPS_msg->position_covariance[0];
-            if(pos_accuracy <= 0)
-                pos_accuracy = 1;
+            // if(pos_accuracy <= 0)
+            //     pos_accuracy = 1;
             // printf("receive covariance %lf \n", pos_accuracy);
             //if(GPS_msg->status.status > 8)
-            globalEstimator.inputGPS(t, latitude, longitude, altitude, pos_accuracy, flag);
-            gpsQueue.pop();
+            globalEstimator.inputGPS(t, latitude, longitude, altitude, pos_accuracy, false);
             break;
         }
         else if(gps_t < t - 0.01)
@@ -160,6 +181,7 @@ void imu_callback(const geometry_msgs::PoseStampedConstPtr &pose_msg)
             break;
     }
     m_buf.unlock();
+    // cout << "Unlocked\n";
 
     Eigen::Vector3d global_t;
     Eigen:: Quaterniond global_q;
@@ -182,19 +204,20 @@ void imu_callback(const geometry_msgs::PoseStampedConstPtr &pose_msg)
 
 
     // write result to file
-    std::ofstream foutC("/home/tony-ws1/output/vio_global.csv", ios::app);
-    foutC.setf(ios::fixed, ios::floatfield);
-    foutC.precision(0);
-    foutC << pose_msg->header.stamp.toSec() * 1e9 << ",";
-    foutC.precision(5);
-    foutC << global_t.x() << ","
-            << global_t.y() << ","
-            << global_t.z() << ","
-            << global_q.w() << ","
-            << global_q.x() << ","
-            << global_q.y() << ","
-            << global_q.z() << endl;
-    foutC.close();
+    // std::ofstream foutC("/home/tony-ws1/output/vio_global.csv", ios::app);
+    // foutC.setf(ios::fixed, ios::floatfield);
+    // foutC.precision(0);
+    // foutC << pose_msg->header.stamp.toSec() * 1e9 << ",";
+    // foutC.precision(5);
+    // foutC << global_t.x() << ","
+    //         << global_t.y() << ","
+    //         << global_t.z() << ","
+    //         << global_q.w() << ","
+    //         << global_q.x() << ","
+    //         << global_q.y() << ","
+    //         << global_q.z() << endl;
+    // foutC.close();
+    // cout << "Leaving function\n";
     
 }
 
@@ -288,18 +311,23 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 
 int main(int argc, char **argv)
 {
+
+    printf("Starting Fusion\n");
+
     ros::init(argc, argv, "globalEstimator");
     ros::NodeHandle n("~");
 
     global_path = &globalEstimator.global_path;
 
     ros::Subscriber sub_GPS = n.subscribe("/mavros/global_position/global", 100, GPS_callback);
-    ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 100, vio_callback);
-    ros::Subscriber sub_n_feat = n.subscribe("/vins_estimator/num_features", 100, feature_callback);
+    // ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 100, vio_callback);
+    // ros::Subscriber sub_n_feat = n.subscribe("/vins_estimator/num_features", 100, feature_callback);
     ros::Subscriber sub_imu = n.subscribe("/mavros/local_position/pose", 100, imu_callback);
     pub_global_path = n.advertise<nav_msgs::Path>("global_path", 100);
     pub_global_odometry = n.advertise<nav_msgs::Odometry>("global_odometry", 100);
-    pub_car = n.advertise<visualization_msgs::MarkerArray>("car_model", 1000);
+    pub_imu = n.advertise<nav_msgs::Path>("imu",100);
+    pub_gps = n.advertise<nav_msgs::Path>("gps",100);
+    // pub_car = n.advertise<visualization_msgs::MarkerArray>("car_model", 1000);
     ros::spin();
     return 0;
 }

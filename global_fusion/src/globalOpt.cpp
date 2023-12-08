@@ -86,6 +86,7 @@ void GlobalOptimization::getGlobalOdom(Eigen::Vector3d &odomP, Eigen::Quaternion
 
 void GlobalOptimization::inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy, bool flag)
 {
+    // cout << "Reached Input GPS\n";
 	double xyz[3];
 	GPS2XYZ(latitude, longitude, altitude, xyz);
 	vector<double> tmp{xyz[0], xyz[1], xyz[2], posAccuracy};
@@ -128,23 +129,29 @@ void GlobalOptimization::optimize()
             ceres::LossFunction *loss_function;
             loss_function = new ceres::HuberLoss(1.0);
             ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
+            
+            // printf("Not yet 1 !\n");
 
             //add param
             mPoseMap.lock();
-            int length = localPoseMap.size() + num_extras;
+            int length = localPoseMap.size();
             // w^t_i   w^q_i
             double t_array[length][3];
             double q_array[length][4];
             map<double, vector<double>>::iterator iter;
             iter = globalPoseMap.begin();
 
+            // printf("Not yet 2 !\n");
+
             for(int i=0; i<iter->second.size(); i++){
                 cout << iter->second[i] << " ";
             }
             cout << "\n";
 
+            cout << length << "\n";
             for (int i = 0; i < length; i++, iter++)
             {
+                cout << i << ' ';
                 t_array[i][0] = iter->second[0];
                 t_array[i][1] = iter->second[1];
                 t_array[i][2] = iter->second[2];
@@ -250,8 +257,9 @@ void GlobalOptimization::optimize()
 
             }
             //mPoseMap.unlock();
+            // std::cout << "Added all Parameters!\n";
             ceres::Solve(options, &problem, &summary);
-            // std::cout << summary.BriefReport() << "\n";
+            std::cout << summary.BriefReport() << "\n";
 
             // update global pose
             //mPoseMap.lock();

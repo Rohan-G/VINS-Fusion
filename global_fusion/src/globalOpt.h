@@ -30,13 +30,14 @@ class GlobalOptimization
 public:
 	GlobalOptimization();
 	~GlobalOptimization();
+	void GPS2XYZ(double latitude, double longitude, double altitude, double* xyz);
 	void inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy, bool flag);
 	void inputOdom(double t, Eigen::Vector3d OdomP, Eigen::Quaterniond OdomQ);
 	void getGlobalOdom(Eigen::Vector3d &odomP, Eigen::Quaterniond &odomQ);
 	nav_msgs::Path global_path;
 
 private:
-	void GPS2XYZ(double latitude, double longitude, double altitude, double* xyz);
+	// void GPS2XYZ(double latitude, double longitude, double altitude, double* xyz);
 	void optimize();
 	void updateGlobalPath();
 
