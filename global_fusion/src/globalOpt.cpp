@@ -259,7 +259,7 @@ void GlobalOptimization::optimize()
             //mPoseMap.unlock();
             // std::cout << "Added all Parameters!\n";
             ceres::Solve(options, &problem, &summary);
-            std::cout << summary.BriefReport() << "\n";
+            // std::cout << summary.BriefReport() << "\n";
 
             // update global pose
             //mPoseMap.lock();

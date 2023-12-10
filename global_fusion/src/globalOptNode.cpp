@@ -39,15 +39,6 @@ int num_features;
 bool updated = false;
 nav_msgs::Path imu_path_msg;
 nav_msgs::Path gps_path_msg;
-Eigen::Vector3d g(0, 0, 9.81);
-Eigen::Vector3d latest_P;
-Eigen::Quaterniond latest_Q;
-Eigen::Vector3d latest_V;
-Eigen::Vector3d latest_acc_0;
-Eigen::Vector3d latest_gyr_0;
-double latest_time;
-std::mutex imu_lock;
-
 
 
 void getCWD(){
@@ -57,21 +48,6 @@ void getCWD(){
     } else {
         std::cerr << "Error getting current working directory." << std::endl;
     }
-}
-
-void updPose(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity)
-{
-    double dt = t - latest_time;
-    latest_time = t;
-    Eigen::Vector3d un_acc_0 = latest_Q * (latest_acc_0) - g;
-    Eigen::Vector3d un_gyr = 0.5 * (latest_gyr_0 + angular_velocity);
-    latest_Q = latest_Q * Utility::deltaQ(un_gyr * dt);
-    Eigen::Vector3d un_acc_1 = latest_Q * (linear_acceleration) - g;
-    Eigen::Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
-    latest_P = latest_P + dt * latest_V + 0.5 * dt * dt * un_acc;   
-    latest_V = latest_V + dt * un_acc;
-    latest_acc_0 = linear_acceleration;
-    latest_gyr_0 = angular_velocity;
 }
 
 void publish_car_model(double t, Eigen::Vector3d t_w_car, Eigen::Quaterniond q_w_car)
@@ -145,26 +121,21 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
     gps_path_msg.header.frame_id = "world";
     gps_path_msg.poses.push_back(pose_stamped);
     pub_gps.publish(gps_path_msg);
-    gpsQueue.pop();
     m_buf.unlock();
     // cout << "Leaving GPS func\n";
 }
 
-void imu_callback(const sensor_msgs::ImuConstPtr &pose_msg)
+void imu_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 {
     // printf("imu callback!\n");
     double t = pose_msg->header.stamp.toSec();
     last_vio_t = t;
-    imu_lock.lock();
-    updPose(t, Eigen::Vector3d(pose_msg->linear_acceleration.x(), pose_msg->linear_acceleration.y(), pose_msg->linear_acceleration.z()), Eigen::Vector3d(pose_msg->angular_velocity.x(), pose_msg->angular_velocity.y(), pose_msg->angular_velocity.z()))
-    Eigen::Vector3d vio_t(latest_P.x(), latest_P.y(), latest_P.z());
+    Eigen::Vector3d vio_t(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
     Eigen::Quaterniond vio_q;
-    vio_q.w() = latest_Q.w;
-    vio_q.x() = latest_Q.x;
-    vio_q.y() = latest_Q.y;
-    vio_q.z() = latest_Q.z;
-    // feat_lock.lock();
-    imu_lock.unlock();
+    vio_q.w() = pose_msg->pose.pose.orientation.w;
+    vio_q.x() = pose_msg->pose.pose.orientation.x;
+    vio_q.y() = pose_msg->pose.pose.orientation.y;
+    vio_q.z() = pose_msg->pose.pose.orientation.z;
     bool flag = false;
     // if(num_features > 0){
         // printf("\n\n\n\n %d \n\n\n\n\n", num_features);
@@ -174,11 +145,15 @@ void imu_callback(const sensor_msgs::ImuConstPtr &pose_msg)
     // }
     // feat_lock.unlock();
 
+    geometry_msgs::PoseStamped pose_stamped;
+    pose_stamped.pose.position = pose_msg->pose.pose.position;
+    pose_stamped.pose.orientation = pose_msg->pose.pose.orientation;
     imu_path_msg.header = pose_msg->header;
     imu_path_msg.header.frame_id = "world";
-    imu_path_msg.poses.push_back(*pose_msg);
+    imu_path_msg.poses.push_back(pose_stamped);
     pub_imu.publish(imu_path_msg);
 
+    // cout << gpsQueue.size() << endl;
     m_buf.lock();
     // cout << "locked\n";
     while(!gpsQueue.empty())
@@ -190,7 +165,7 @@ void imu_callback(const sensor_msgs::ImuConstPtr &pose_msg)
         // 10ms sync tolerance
         if(gps_t >= t - 0.01 && gps_t <= t + 0.01)
         {
-            //printf("receive GPS with timestamp %f\n", GPS_msg->header.stamp.toSec());
+            // printf("receive GPS with timestamp %f\n", GPS_msg->header.stamp.toSec());
             double latitude = GPS_msg->latitude;
             double longitude = GPS_msg->longitude;
             double altitude = GPS_msg->altitude;
@@ -347,19 +322,10 @@ int main(int argc, char **argv)
 
     global_path = &globalEstimator.global_path;
 
-    imu_lock.lock()
-    latest_P = Eigen::Vector3d(0,0,0);
-    latest_Q = Eigen::Quaterniond(1,0,0,0);
-    latest_acc_0 = Eigen::Vector3d(0,0,0);
-    latest_gyr_0 = Eigen::Vector3d(0,0,0);
-    latest_V = Eigen::Vector3d(0,0,0);
-    latest_time = 0;
-    imu_lock.unlock();
-
-    ros::Subscriber sub_GPS = n.subscribe("/mavros/global_position/global", 100, GPS_callback);
+    ros::Subscriber sub_GPS = n.subscribe("/mavros/global_position/raw/fix", 100, GPS_callback);
     // ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 100, vio_callback);
     // ros::Subscriber sub_n_feat = n.subscribe("/vins_estimator/num_features", 100, feature_callback);
-    ros::Subscriber sub_imu = n.subscribe("/mavros/local_position/pose", 100, imu_callback);
+    ros::Subscriber sub_imu = n.subscribe("/vins_estimator/imu_propagate", 100, imu_callback);
     pub_global_path = n.advertise<nav_msgs::Path>("global_path", 100);
     pub_global_odometry = n.advertise<nav_msgs::Odometry>("global_odometry", 100);
     pub_imu = n.advertise<nav_msgs::Path>("imu",100);
