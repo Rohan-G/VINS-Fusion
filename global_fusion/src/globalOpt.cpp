@@ -40,6 +40,14 @@ void GlobalOptimization::GPS2XYZ(double latitude, double longitude, double altit
         geoConverter.Reset(latitude, longitude, altitude);
         initGPS = true;
     }
+
+    Eigen::Matrix3d R;
+    double angleInRadians = -M_PI / 2.0;
+    R = AngleAxisd(angleInRadians, Vector3d::UnitZ());
+    Eigen::Vector3 oldpoints(xyz[0], xyz[1], xyz[2]);
+    Eigen::Vector3d newPoints = R * oldpoints;
+    xyz[0] = newPoints.x(); xyz[1] = newPoints.y(); xyz[2] = newPoints.z();
+
     geoConverter.Forward(latitude, longitude, altitude, xyz[0], xyz[1], xyz[2]);
     //printf("la: %f lo: %f al: %f\n", latitude, longitude, altitude);
     //printf("gps x: %f y: %f z: %f\n", xyz[0], xyz[1], xyz[2]);
