@@ -41,12 +41,16 @@ void GlobalOptimization::GPS2XYZ(double latitude, double longitude, double altit
         initGPS = true;
     }
 
-    Eigen::Matrix3d R;
-    double angleInRadians = -M_PI / 2.0;
-    R = AngleAxisd(angleInRadians, Vector3d::UnitZ());
-    Eigen::Vector3 oldpoints(xyz[0], xyz[1], xyz[2]);
-    Eigen::Vector3d newPoints = R * oldpoints;
-    xyz[0] = newPoints.x(); xyz[1] = newPoints.y(); xyz[2] = newPoints.z();
+    // Eigen::Matrix3d R;
+    // double angleInRadians = M_PI / 4.0;
+    // // cout << angleInRadians << "\n";
+    // R = Eigen::AngleAxisd(angleInRadians, Eigen::Vector3d::UnitZ());
+    // // cout << R << "\n";
+    // Eigen::Vector3d oldpoints(xyz[0], xyz[1], xyz[2]);
+    // // cout << oldpoints.x() << " " << oldpoints.y() << " " << oldpoints.z() << "\n";
+    // Eigen::Vector3d newPoints = R * oldpoints;
+    // // cout << newPoints.x() << " " << newPoints.y() << " " << newPoints.z() << "\n";
+    // xyz[0] = newPoints.x(); xyz[1] = newPoints.y(); xyz[2] = newPoints.z();
 
     geoConverter.Forward(latitude, longitude, altitude, xyz[0], xyz[1], xyz[2]);
     //printf("la: %f lo: %f al: %f\n", latitude, longitude, altitude);
@@ -97,7 +101,7 @@ void GlobalOptimization::inputGPS(double t, double latitude, double longitude, d
     // cout << "Reached Input GPS\n";
 	double xyz[3];
 	GPS2XYZ(latitude, longitude, altitude, xyz);
-	vector<double> tmp{xyz[0], xyz[1], xyz[2], posAccuracy};
+	vector<double> tmp{xyz[0], -xyz[1], xyz[2], posAccuracy};
     //printf("new gps: t: %f x: %f y: %f z:%f \n", t, tmp[0], tmp[1], tmp[2]);
     // if(posAccuracy > 0.5){
     if(flag){
@@ -151,15 +155,15 @@ void GlobalOptimization::optimize()
 
             // printf("Not yet 2 !\n");
 
-            for(int i=0; i<iter->second.size(); i++){
-                cout << iter->second[i] << " ";
-            }
-            cout << "\n";
+            // for(int i=0; i<iter->second.size(); i++){
+            //     cout << iter->second[i] << " ";
+            // }
+            // cout << "\n";
 
-            cout << length << "\n";
+            // cout << length << "\n";
             for (int i = 0; i < length; i++, iter++)
             {
-                cout << i << ' ';
+                // cout << i << ' ';
                 t_array[i][0] = iter->second[0];
                 t_array[i][1] = iter->second[1];
                 t_array[i][2] = iter->second[2];

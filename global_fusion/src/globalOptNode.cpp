@@ -35,7 +35,7 @@ double last_imu_t = -1;
 std::queue<sensor_msgs::NavSatFixConstPtr> gpsQueue;
 std::mutex m_buf;
 std::mutex feat_lock;
-int num_features;
+int num_features=100;
 bool updated = false;
 nav_msgs::Path imu_path_msg;
 nav_msgs::Path gps_path_msg;
@@ -115,7 +115,7 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
     geometry_msgs::PoseStamped pose_stamped;
     pose_stamped.header = GPS_msg->header;
     pose_stamped.pose.position.x = xyz[0];
-    pose_stamped.pose.position.y = xyz[1];
+    pose_stamped.pose.position.y = -xyz[1];
     pose_stamped.pose.position.z = xyz[2];
     gps_path_msg.header = pose_stamped.header;
     gps_path_msg.header.frame_id = "world";
