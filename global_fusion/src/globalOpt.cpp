@@ -41,20 +41,34 @@ void GlobalOptimization::GPS2XYZ(double latitude, double longitude, double altit
         initGPS = true;
     }
 
-    // Eigen::Matrix3d R;
-    // double angleInRadians = M_PI / 4.0;
-    // // cout << angleInRadians << "\n";
-    // R = Eigen::AngleAxisd(angleInRadians, Eigen::Vector3d::UnitZ());
-    // // cout << R << "\n";
-    // Eigen::Vector3d oldpoints(xyz[0], xyz[1], xyz[2]);
-    // // cout << oldpoints.x() << " " << oldpoints.y() << " " << oldpoints.z() << "\n";
-    // Eigen::Vector3d newPoints = R * oldpoints;
-    // // cout << newPoints.x() << " " << newPoints.y() << " " << newPoints.z() << "\n";
-    // xyz[0] = newPoints.x(); xyz[1] = newPoints.y(); xyz[2] = newPoints.z();
-
     geoConverter.Forward(latitude, longitude, altitude, xyz[0], xyz[1], xyz[2]);
+    // geoConverter.Forward(latitude, longitude, oldpoints.x(), oldpoints.y(), oldpoints.z());
     //printf("la: %f lo: %f al: %f\n", latitude, longitude, altitude);
     //printf("gps x: %f y: %f z: %f\n", xyz[0], xyz[1], xyz[2]);
+
+    return;
+
+    Eigen::Matrix4d T;
+    // T << 7.86742265e-01, 1.91655825e-06, 9.05436508e-20, -1.47662395e+01 , 1.04552473e-06, 4.86860988e-06, 9.99998706e-01, -5.24362592e+02 , 6.32813304e-09, 2.84365341e-11, 7.14188130e-01, -3.71896226e+02, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00,  1.00000000e+00;
+    // T << 8.95217611e-05, 1.05600687e-04, 9.99990959e-01, -5.12667217e+02, 2.91190603e-05, 1.43185711e-04, 9.99999984e-01, -4.61596719e+02, 5.14655816e-19, 1.99384829e-21, 5.24829256e-01, -2.73608705e+02, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00,  1.00000000e+00;
+    // T << -8.70683533e-01,  -3.02439368e-01,   3.87866749e-01,  -1.52136353e+02, 4.69364968e-01,  -2.75242655e-01,   8.39010136e-01,  -3.63593890e+02,-1.46992222e-01,   9.12563373e-01,   3.81603691e-01,  -2.67369819e+02, 0.00000000e+00,   0.00000000e+00,   0.00000000e+00,   1.00000000e+00;
+    T << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1; 
+
+    // cout << T << endl;
+
+    // Eigen::Matrix3d R;
+    // double angleInRadians = 0.03008570147792706;
+    // cout << angleInRadians << "\n";
+    // R = Eigen::AngleAxisd(angleInRadians, Eigen::Vector3d::UnitZ());
+    // // cout << R << "\n";
+    Eigen::Vector4d oldpoints(xyz[0], xyz[1], xyz[2], 1);
+    // Eigen::Vector3d oldpoints(xyz[0], xyz[1], xyz[2]);
+    // cout << oldpoints.x() << " " << oldpoints.y() << " " << oldpoints.z() << "\n";
+    Eigen::Vector4d newPoints = T * oldpoints;
+    // Eigen::Vector3d newPoints = R * oldpoints;
+    // cout << newPoints.x() << " " << newPoints.y() << " " << newPoints.z() << "\n";
+    xyz[0] = newPoints.x(); xyz[1] = newPoints.y(); xyz[2] = newPoints.z();
+
 }
 
 void GlobalOptimization::inputOdom(double t, Eigen::Vector3d OdomP, Eigen::Quaterniond OdomQ)
@@ -96,7 +110,7 @@ void GlobalOptimization::getGlobalOdom(Eigen::Vector3d &odomP, Eigen::Quaternion
     odomQ = lastQ;
 }
 
-void GlobalOptimization::inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy, bool flag)
+void GlobalOptimization::inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy)
 {
     // cout << "Reached Input GPS\n";
 	double xyz[3];
@@ -104,11 +118,11 @@ void GlobalOptimization::inputGPS(double t, double latitude, double longitude, d
 	vector<double> tmp{xyz[0], -xyz[1], xyz[2], posAccuracy};
     //printf("new gps: t: %f x: %f y: %f z:%f \n", t, tmp[0], tmp[1], tmp[2]);
     // if(posAccuracy > 0.5){
-    if(flag){
-        extras_lock.lock();
-        num_extras ++;
-        extras_lock.unlock();
-    }
+    // if(flag){
+    //     extras_lock.lock();
+    //     num_extras ++;
+    //     extras_lock.unlock();
+    // }
     GPSPositionMap[t] = tmp;
     // }
     // num++;
@@ -116,6 +130,11 @@ void GlobalOptimization::inputGPS(double t, double latitude, double longitude, d
     newGPS = true;
     // }
 
+}
+
+void GlobalOptimization::noGPS()
+{
+    newGPS = true;
 }
 
 void GlobalOptimization::optimize()

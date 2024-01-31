@@ -30,8 +30,8 @@
 GlobalOptimization globalEstimator;
 ros::Publisher pub_global_odometry, pub_global_path, pub_car, pub_imu, pub_gps;
 nav_msgs::Path *global_path;
-double last_vio_t = -1;
-double last_imu_t = -1;
+// double last_vio_t = -1;
+// double last_imu_time = -1;
 std::queue<sensor_msgs::NavSatFixConstPtr> gpsQueue;
 std::mutex m_buf;
 std::mutex feat_lock;
@@ -40,6 +40,8 @@ bool updated = false;
 nav_msgs::Path imu_path_msg;
 nav_msgs::Path gps_path_msg;
 
+std::mutex lastUpd;
+double lastTime;
 
 void getCWD(){
     char buffer[PATH_MAX]; // To store the path
@@ -112,10 +114,11 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
     gpsQueue.push(GPS_msg);
     double xyz[3];
 	globalEstimator.GPS2XYZ(GPS_msg->latitude, GPS_msg->longitude, GPS_msg->altitude, xyz);
+    // cout << xyz[0] << " " << xyz[1] << " " << xyz[2] << endl;
     geometry_msgs::PoseStamped pose_stamped;
     pose_stamped.header = GPS_msg->header;
     pose_stamped.pose.position.x = xyz[0];
-    pose_stamped.pose.position.y = -xyz[1];
+    pose_stamped.pose.position.y = xyz[1];
     pose_stamped.pose.position.z = xyz[2];
     gps_path_msg.header = pose_stamped.header;
     gps_path_msg.header.frame_id = "world";
@@ -125,128 +128,24 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
     // cout << "Leaving GPS func\n";
 }
 
-void imu_callback(const nav_msgs::OdometryConstPtr &pose_msg)
+void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
 {
-    // printf("imu callback!\n");
     double t = pose_msg->header.stamp.toSec();
-    last_vio_t = t;
+    // last_imu_t = t;
     Eigen::Vector3d vio_t(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
     Eigen::Quaterniond vio_q;
     vio_q.w() = pose_msg->pose.pose.orientation.w;
     vio_q.x() = pose_msg->pose.pose.orientation.x;
     vio_q.y() = pose_msg->pose.pose.orientation.y;
     vio_q.z() = pose_msg->pose.pose.orientation.z;
-    bool flag = false;
-    // if(num_features > 0){
-        // printf("\n\n\n\n %d \n\n\n\n\n", num_features);
-        // replace with pure IMU
+
+    lastUpd.lock();
+    lastTime = t;
+    lastUpd.unlock();
     globalEstimator.inputOdom(t, vio_t, vio_q);
-    flag = true;
-    // }
-    // feat_lock.unlock();
-
-    geometry_msgs::PoseStamped pose_stamped;
-    pose_stamped.pose.position = pose_msg->pose.pose.position;
-    pose_stamped.pose.orientation = pose_msg->pose.pose.orientation;
-    imu_path_msg.header = pose_msg->header;
-    imu_path_msg.header.frame_id = "world";
-    imu_path_msg.poses.push_back(pose_stamped);
-    pub_imu.publish(imu_path_msg);
-
-    // cout << gpsQueue.size() << endl;
-    m_buf.lock();
-    // cout << "locked\n";
-    while(!gpsQueue.empty())
-    {
-        // cout << "Here\n";
-        sensor_msgs::NavSatFixConstPtr GPS_msg = gpsQueue.front();
-        double gps_t = GPS_msg->header.stamp.toSec();
-        printf("imu t: %f, gps t: %f \n", t, gps_t);
-        // 10ms sync tolerance
-        if(gps_t >= t - 0.01 && gps_t <= t + 0.01)
-        {
-            // printf("receive GPS with timestamp %f\n", GPS_msg->header.stamp.toSec());
-            double latitude = GPS_msg->latitude;
-            double longitude = GPS_msg->longitude;
-            double altitude = GPS_msg->altitude;
-            //int numSats = GPS_msg->status.service;
-            double pos_accuracy = GPS_msg->position_covariance[0];
-            // if(pos_accuracy <= 0)
-            //     pos_accuracy = 1;
-            // printf("receive covariance %lf \n", pos_accuracy);
-            //if(GPS_msg->status.status > 8)
-            globalEstimator.inputGPS(t, latitude, longitude, altitude, pos_accuracy, false);
-            break;
-        }
-        else if(gps_t < t - 0.01)
-            gpsQueue.pop();
-        else if(gps_t > t + 0.01)
-            break;
-    }
-    m_buf.unlock();
-    // cout << "Unlocked\n";
-
-    Eigen::Vector3d global_t;
-    Eigen:: Quaterniond global_q;
-    globalEstimator.getGlobalOdom(global_t, global_q);
-
-    nav_msgs::Odometry odometry;
-    odometry.header = pose_msg->header;
-    odometry.header.frame_id = "world";
-    odometry.child_frame_id = "world";
-    odometry.pose.pose.position.x = global_t.x();
-    odometry.pose.pose.position.y = global_t.y();
-    odometry.pose.pose.position.z = global_t.z();
-    odometry.pose.pose.orientation.x = global_q.x();
-    odometry.pose.pose.orientation.y = global_q.y();
-    odometry.pose.pose.orientation.z = global_q.z();
-    odometry.pose.pose.orientation.w = global_q.w();
-    pub_global_odometry.publish(odometry);
-    pub_global_path.publish(*global_path);
-    // publish_car_model(t, global_t, global_q);
-
-
-    // write result to file
-    // std::ofstream foutC("/home/tony-ws1/output/vio_global.csv", ios::app);
-    // foutC.setf(ios::fixed, ios::floatfield);
-    // foutC.precision(0);
-    // foutC << pose_msg->header.stamp.toSec() * 1e9 << ",";
-    // foutC.precision(5);
-    // foutC << global_t.x() << ","
-    //         << global_t.y() << ","
-    //         << global_t.z() << ","
-    //         << global_q.w() << ","
-    //         << global_q.x() << ","
-    //         << global_q.y() << ","
-    //         << global_q.z() << endl;
-    // foutC.close();
-    // cout << "Leaving function\n";
-    
-}
-
-void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
-{
-    //printf("vio_callback! \n");
-    double t = pose_msg->header.stamp.toSec();
-    last_vio_t = t;
-    Eigen::Vector3d vio_t(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
-    Eigen::Quaterniond vio_q;
-    vio_q.w() = pose_msg->pose.pose.orientation.w;
-    vio_q.x() = pose_msg->pose.pose.orientation.x;
-    vio_q.y() = pose_msg->pose.pose.orientation.y;
-    vio_q.z() = pose_msg->pose.pose.orientation.z;
-    feat_lock.lock();
-    bool flag = false;
-    if(num_features > 0){
-        // printf("\n\n\n\n %d \n\n\n\n\n", num_features);
-        // replace with pure IMU
-        globalEstimator.inputOdom(t, vio_t, vio_q);
-        flag = true;
-    }
-    feat_lock.unlock();
-
 
     m_buf.lock();
+    bool gpsSeen = false;
     while(!gpsQueue.empty())
     {
         sensor_msgs::NavSatFixConstPtr GPS_msg = gpsQueue.front();
@@ -265,8 +164,9 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
                 pos_accuracy = 1;
             // printf("receive covariance %lf \n", pos_accuracy);
             //if(GPS_msg->status.status > 8)
-            globalEstimator.inputGPS(t, latitude, longitude, altitude, pos_accuracy, flag);
+            globalEstimator.inputGPS(t, latitude, longitude, altitude, pos_accuracy);
             gpsQueue.pop();
+            gpsSeen = true;
             break;
         }
         else if(gps_t < t - 0.01)
@@ -274,6 +174,14 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
         else if(gps_t > t + 0.01)
             break;
     }
+    if(!gpsSeen && !isIMU)
+        globalEstimator.noGPS();
+
+    else if(!gpsSeen){
+        cout << "Failure!" << endl;
+        return;
+    }
+    
     m_buf.unlock();
 
     Eigen::Vector3d global_t;
@@ -312,6 +220,35 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     foutC.close();
 }
 
+void imu_callback(const nav_msgs::OdometryConstPtr &pose_msg)
+{
+    // printf("imu callback!\n");
+    double t = pose_msg->header.stamp.toSec();
+
+    lastUpd.lock();
+    if(t>=(lastTime+0.1)){
+        lastUpd.unlock();
+        updMap(pose_msg);
+    }
+    else{
+        lastUpd.unlock();
+    }
+
+    geometry_msgs::PoseStamped pose_stamped;
+    pose_stamped.pose.position = pose_msg->pose.pose.position;
+    pose_stamped.pose.orientation = pose_msg->pose.pose.orientation;
+    imu_path_msg.header = pose_msg->header;
+    imu_path_msg.header.frame_id = "world";
+    imu_path_msg.poses.push_back(pose_stamped);
+    pub_imu.publish(imu_path_msg);
+}
+
+void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
+{
+    updMap(pose_msg);
+    
+}
+
 int main(int argc, char **argv)
 {
 
@@ -323,7 +260,7 @@ int main(int argc, char **argv)
     global_path = &globalEstimator.global_path;
 
     ros::Subscriber sub_GPS = n.subscribe("/mavros/global_position/raw/fix", 100, GPS_callback);
-    // ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 100, vio_callback);
+    ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 100, vio_callback);
     // ros::Subscriber sub_n_feat = n.subscribe("/vins_estimator/num_features", 100, feature_callback);
     ros::Subscriber sub_imu = n.subscribe("/vins_estimator/imu_propagate", 100, imu_callback);
     pub_global_path = n.advertise<nav_msgs::Path>("global_path", 100);
