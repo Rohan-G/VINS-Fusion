@@ -49,6 +49,8 @@ std::mutex updIMU;
 double lastIMU = -1;
 nav_msgs::OdometryConstPtr last_imu_msg = NULL;
 
+Eigen::Matrix4d VINS_TRANSFORM = Eigen::Matrix4d::Identity();
+
 void getCWD(){
     char buffer[PATH_MAX]; // To store the path
     if (getcwd(buffer, sizeof(buffer)) != NULL) {
@@ -134,12 +136,33 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
     // cout << "Leaving GPS func\n";
 }
 
-void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
+void updMap(nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
 {
 
     // cout << isIMU << endl;
     
     double t = pose_msg->header.stamp.toSec();
+
+    // check for VINS reset
+    bool vins_reset = false;
+    lastUpd.lock();
+    if(last_vins_t == -1){
+        last_vins_t = t;
+    }
+    else if(last_vins_t <= max(0,t - 1)){
+        updIMU.lock();
+        if(lastIMU > last_vins_t){
+            pose_msg = last_imu_msg;
+            vins_reset = true;
+            isIMU = true;
+        }
+        else{
+            cout << "System Failure!" << endl;
+            return;
+        }
+    }
+    lastUpd.unlock();
+
     // cout << "Current Time: " << t << endl;
     printf("Current time : %lf, isIMU: %d\n", t, (int)isIMU);
     // last_imu_t = t;
@@ -152,7 +175,6 @@ void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
 
     lastUpd.lock();
     lastTime = t;
-
     lastUpd.unlock();
     globalEstimator.inputOdom(t, vio_t, vio_q);
 
@@ -196,6 +218,10 @@ void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
     }
     
     m_buf.unlock();
+
+    if(vins_reset){
+        VINS_TRANSFORM = 
+    }
 
     Eigen::Vector3d global_t;
     Eigen:: Quaterniond global_q;
