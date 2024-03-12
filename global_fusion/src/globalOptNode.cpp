@@ -41,7 +41,13 @@ nav_msgs::Path imu_path_msg;
 nav_msgs::Path gps_path_msg;
 
 std::mutex lastUpd;
+bool isRead = false;
 double lastTime;
+double last_vins_t = -1;
+
+std::mutex updIMU;
+double lastIMU = -1;
+nav_msgs::OdometryConstPtr last_imu_msg = NULL;
 
 void getCWD(){
     char buffer[PATH_MAX]; // To store the path
@@ -130,7 +136,12 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
 
 void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
 {
+
+    // cout << isIMU << endl;
+    
     double t = pose_msg->header.stamp.toSec();
+    // cout << "Current Time: " << t << endl;
+    printf("Current time : %lf, isIMU: %d\n", t, (int)isIMU);
     // last_imu_t = t;
     Eigen::Vector3d vio_t(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
     Eigen::Quaterniond vio_q;
@@ -141,6 +152,7 @@ void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
 
     lastUpd.lock();
     lastTime = t;
+
     lastUpd.unlock();
     globalEstimator.inputOdom(t, vio_t, vio_q);
 
@@ -162,7 +174,7 @@ void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
             double pos_accuracy = GPS_msg->position_covariance[0];
             if(pos_accuracy <= 0)
                 pos_accuracy = 1;
-            // printf("receive covariance %lf \n", pos_accuracy);
+            // updMapprintf("receive covariance %lf \n", pos_accuracy);
             //if(GPS_msg->status.status > 8)
             globalEstimator.inputGPS(t, latitude, longitude, altitude, pos_accuracy);
             gpsQueue.pop();
@@ -178,6 +190,7 @@ void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
         globalEstimator.noGPS();
 
     else if(!gpsSeen){
+        m_buf.unlock();
         cout << "Failure!" << endl;
         return;
     }
@@ -220,18 +233,30 @@ void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
     foutC.close();
 }
 
+// IMU propagate's callback function
 void imu_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 {
     // printf("imu callback!\n");
     double t = pose_msg->header.stamp.toSec();
 
     lastUpd.lock();
-    if(t>=(lastTime+0.1)){
+    // cout << lastTime << " " << t << endl;
+    if(!isRead){
+        isRead = true;
+        lastTime = t;
         lastUpd.unlock();
-        updMap(pose_msg);
+    }
+    else if(t>=(lastTime+0.5)){
+        lastUpd.unlock();
+        updMap(pose_msg, true);
     }
     else{
         lastUpd.unlock();
+        updIMU.lock();
+        if(t > lastIMU || last_imu_msg == NULL){
+            last_imu_msg = pose_msg;
+        }
+        updIMU.unlock()
     }
 
     geometry_msgs::PoseStamped pose_stamped;
@@ -245,7 +270,8 @@ void imu_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 
 void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
-    updMap(pose_msg);
+    // cout << "VIO callback\n";
+    updMap(pose_msg, false);
     
 }
 
