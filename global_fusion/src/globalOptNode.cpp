@@ -136,42 +136,62 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
     // cout << "Leaving GPS func\n";
 }
 
-void updMap(nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
+void updMap(const nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
 {
 
     // cout << isIMU << endl;
     
     double t = pose_msg->header.stamp.toSec();
+    nav_msgs::OdometryConstPtr vins_msg = NULL;
+    nav_msgs::OdometryConstPtr msg_to_use = NULL;
 
     // check for VINS reset
     bool vins_reset = false;
     lastUpd.lock();
     if(last_vins_t == -1){
         last_vins_t = t;
+        msg_to_use = pose_msg;
     }
-    else if(last_vins_t <= max(0,t - 1)){
+    else if(last_vins_t <= t - 1){
         updIMU.lock();
+        last_vins_t = t;
         if(lastIMU > last_vins_t){
-            pose_msg = last_imu_msg;
+            vins_msg = pose_msg;
+            msg_to_use = last_imu_msg;
             vins_reset = true;
             isIMU = true;
+            updIMU.unlock();
         }
         else{
             cout << "System Failure!" << endl;
+            updIMU.unlock();
             return;
         }
+    }
+    else{
+        msg_to_use = pose_msg;
     }
     lastUpd.unlock();
 
     // cout << "Current Time: " << t << endl;
     printf("Current time : %lf, isIMU: %d\n", t, (int)isIMU);
     // last_imu_t = t;
-    Eigen::Vector3d vio_t(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
+    Eigen::Vector3d vio_t(msg_to_use->pose.pose.position.x, msg_to_use->pose.pose.position.y, msg_to_use->pose.pose.position.z);
     Eigen::Quaterniond vio_q;
-    vio_q.w() = pose_msg->pose.pose.orientation.w;
-    vio_q.x() = pose_msg->pose.pose.orientation.x;
-    vio_q.y() = pose_msg->pose.pose.orientation.y;
-    vio_q.z() = pose_msg->pose.pose.orientation.z;
+    vio_q.w() = msg_to_use->pose.pose.orientation.w;
+    vio_q.x() = msg_to_use->pose.pose.orientation.x;
+    vio_q.y() = msg_to_use->pose.pose.orientation.y;
+    vio_q.z() = msg_to_use->pose.pose.orientation.z;
+
+    if(!isIMU){
+        last_vins_t = t;
+        Eigen::Matrix4d T;
+        T.block<3,3>(0,0) = vio_q.toRotationMatrix();
+        T.block<3,1>(0,3) = vio_t;
+        T = VINS_TRANSFORM * T;
+        vio_t = T.block<3,1>(0,3);
+        vio_q = Eigen::Quaterniond(T.block<3,3>(0,0));
+    }
 
     lastUpd.lock();
     lastTime = t;
@@ -219,16 +239,26 @@ void updMap(nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
     
     m_buf.unlock();
 
-    if(vins_reset){
-        VINS_TRANSFORM = 
-    }
-
     Eigen::Vector3d global_t;
     Eigen:: Quaterniond global_q;
     globalEstimator.getGlobalOdom(global_t, global_q);
 
+    if(vins_reset){
+        Eigen::Matrix3d R = Eigen::Quaterniond(vins_msg->pose.pose.orientation.w, vins_msg->pose.pose.orientation.x, vins_msg->pose.pose.orientation.y, vins_msg->pose.pose.orientation.z).toRotationMatrix();
+        Eigen::Vector3d T = Eigen::Vector3d(vins_msg->pose.pose.position.x, vins_msg->pose.pose.position.y, vins_msg->pose.pose.position.z);
+        Eigen::Matrix4d T1;
+        Eigen::Matrix4d T2;
+        T1.block<3,3>(0,0) = R;
+        T1.block<3,1>(0,3) = T;
+
+        T2.block<3,3>(0,0) = Eigen::Quaterniond(global_q.w(), global_q.x(), global_q.y(), global_q.z()).toRotationMatrix();
+        T2.block<3,1>(0,3) = global_t;
+
+        VINS_TRANSFORM = T2 * T1.inverse();
+    }
+
     nav_msgs::Odometry odometry;
-    odometry.header = pose_msg->header;
+    odometry.header = msg_to_use->header;
     odometry.header.frame_id = "world";
     odometry.child_frame_id = "world";
     odometry.pose.pose.position.x = global_t.x();
@@ -247,7 +277,7 @@ void updMap(nav_msgs::OdometryConstPtr &pose_msg, bool isIMU)
     std::ofstream foutC("/home/tony-ws1/output/vio_global.csv", ios::app);
     foutC.setf(ios::fixed, ios::floatfield);
     foutC.precision(0);
-    foutC << pose_msg->header.stamp.toSec() * 1e9 << ",";
+    foutC << msg_to_use->header.stamp.toSec() * 1e9 << ",";
     foutC.precision(5);
     foutC << global_t.x() << ","
             << global_t.y() << ","
@@ -282,7 +312,7 @@ void imu_callback(const nav_msgs::OdometryConstPtr &pose_msg)
         if(t > lastIMU || last_imu_msg == NULL){
             last_imu_msg = pose_msg;
         }
-        updIMU.unlock()
+        updIMU.unlock();
     }
 
     geometry_msgs::PoseStamped pose_stamped;
